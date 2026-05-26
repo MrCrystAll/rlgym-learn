@@ -18,6 +18,7 @@ from rlgym.api import (
     RLGym,
     StateType,
 )
+from rlgym_learn.util.stdin_reader import STDINReader
 
 from .agent import AgentManager
 from .api import ActionAssociatedLearningData, AgentController
@@ -123,6 +124,9 @@ class LearningCoordinator(
         )
         self.agent_manager.set_space_types(obs_space, action_space)
         self.agent_manager.load_agent_controllers(self.config)
+        
+        self._stdin_reader = STDINReader()
+        
         print("Learning coordinator successfully initialized!")
 
     def start(self):
@@ -159,7 +163,9 @@ class LearningCoordinator(
 
         # Class to watch for keyboard hits
         kb = KBHit()
-
+        
+        self._stdin_reader.start_reading()
+        
         # Collect the desired number of timesteps from our environments.
         loop_iterations = 0
         while self.cumulative_timesteps < self.config.base_config.timestep_limit:
@@ -174,12 +180,72 @@ class LearningCoordinator(
             )
             loop_iterations += 1
             if loop_iterations % 50 == 0:
-                if self.process_kbhit(kb):
+                if self.process_kbhit(kb) or self.process_stdin():
                     break
         if self.cumulative_timesteps >= self.config.base_config.timestep_limit:
             print("Hit timestep limit, cleaning up...")
         else:
             print("Quitting and cleaning up...")
+            
+    def _pause(self, kb: KBHit | None, stdin_reader: STDINReader | None):
+        print("Paused, press any key to resume")
+        while True:
+            if kb and kb.kbhit():
+                break
+            
+            if stdin_reader and stdin_reader.getch():
+                break
+            
+    def _add_process(self):
+        print("Adding process...")
+        self.env_process_interface.add_process()
+        print(f"Process added. ({self.env_process_interface.n_procs} total)")
+        
+    def _delete_process(self):
+        print("Deleting process...")
+        self.env_process_interface.delete_process()
+        print(f"Process deleted. ({self.env_process_interface.n_procs} total)")
+        
+    def _increate_min_steps_per_inference(self):
+        min_process_steps_per_inference = (
+            self.env_process_interface.increase_min_process_steps_per_inference()
+        )
+        print(
+            f"Min process steps per inference increased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
+        )
+        
+    def _decrease_min_steps_per_inference(self):
+        min_process_steps_per_inference = (
+            self.env_process_interface.decrease_min_process_steps_per_inference()
+        )
+        print(
+            f"Min process steps per inference decreased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
+        )
+            
+    def process_stdin(self) -> bool:
+        data = self._stdin_reader.getch()
+        
+        if not data:
+            return False
+        
+        if data == "p":
+            self._pause(None, self._stdin_reader)
+        if data in ("c", "q"):
+            self.agent_manager.save_agent_controllers()
+        if data == "q":
+            return True
+        if data in ("c", "p"):
+            print("Resuming...\n")
+        if data == "a":
+            self._add_process()
+        if data == "d":
+            self._delete_process()
+        if data == "j":
+            self._increate_min_steps_per_inference()
+        if data == "l":
+            self._decrease_min_steps_per_inference()
+        return False
+            
 
     def process_kbhit(self, kb: KBHit) -> bool:
         # Check if keyboard press
@@ -190,10 +256,7 @@ class LearningCoordinator(
         if kb.kbhit():
             c = kb.getch()
             if c == "p":  # pause
-                print("Paused, press any key to resume")
-                while True:
-                    if kb.kbhit():
-                        break
+                self._pause(kb, None)
             if c in ("c", "q"):
                 self.agent_manager.save_agent_controllers()
             if c == "q":
@@ -201,27 +264,13 @@ class LearningCoordinator(
             if c in ("c", "p"):
                 print("Resuming...\n")
             if c == "a":
-                print("Adding process...")
-                self.env_process_interface.add_process()
-                print(f"Process added. ({self.env_process_interface.n_procs} total)")
+                self._add_process()
             if c == "d":
-                print("Deleting process...")
-                self.env_process_interface.delete_process()
-                print(f"Process deleted. ({self.env_process_interface.n_procs} total)")
+                self._delete_process()
             if c == "j":
-                min_process_steps_per_inference = (
-                    self.env_process_interface.increase_min_process_steps_per_inference()
-                )
-                print(
-                    f"Min process steps per inference increased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
-                )
+                self._increate_min_steps_per_inference()
             if c == "l":
-                min_process_steps_per_inference = (
-                    self.env_process_interface.decrease_min_process_steps_per_inference()
-                )
-                print(
-                    f"Min process steps per inference decreased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
-                )
+                self._decrease_min_steps_per_inference()
             return False
 
     def save(self):
@@ -232,5 +281,6 @@ class LearningCoordinator(
         Function to clean everything up before shutting down.
         :return: None.
         """
+        self._stdin_reader.stop()
         self.env_process_interface.cleanup()
         self.agent_manager.cleanup()
