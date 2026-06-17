@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
-from typing import Any, Dict, Generic, Optional, Type, TypeVar
+from collections.abc import Callable, Mapping
+from typing import Any, Generic
 
-from pydantic import BaseModel, Field, RootModel, ValidationInfo, model_validator
 from rlgym.api import (
     ActionSpaceType,
     ActionType,
@@ -19,7 +18,7 @@ from rlgym.api import (
 from typing_extensions import Self
 
 from .agent import AgentManager
-from .api import ActionAssociatedLearningData, AgentController
+from .api import AgentController
 from .env_processing import EnvProcessInterface
 from .learning_coordinator_config import (
     DEFAULT_CONFIG_FILENAME,
@@ -38,7 +37,6 @@ class LearningCoordinator(
         StateType,
         ObsSpaceType,
         ActionSpaceType,
-        ActionAssociatedLearningData,
     ]
 ):
     def __init__(
@@ -56,7 +54,7 @@ class LearningCoordinator(
                 ActionSpaceType,
             ],
         ],
-        agent_controllers: Dict[
+        agent_controllers: Mapping[
             str,
             AgentController[
                 Any,
@@ -67,20 +65,39 @@ class LearningCoordinator(
                 StateType,
                 ObsSpaceType,
                 ActionSpaceType,
-                ActionAssociatedLearningData,
                 Any,
             ],
         ],
-        config: Optional[LearningCoordinatorConfigModel] = None,
-        config_location: Optional[str] = None,
+        config: LearningCoordinatorConfigModel[
+            AgentID,
+            ObsType,
+            ActionType,
+            RewardType,
+            StateType,
+            ObsSpaceType,
+            ActionSpaceType,
+        ]
+        | None = None,
+        config_location: str | None = None,
     ):
         if config is not None:
-            self.config = LearningCoordinatorConfigModel.model_validate(
+            self.config: LearningCoordinatorConfigModel[
+                AgentID,
+                ObsType,
+                ActionType,
+                RewardType,
+                StateType,
+                ObsSpaceType,
+                ActionSpaceType,
+            ] = LearningCoordinatorConfigModel.model_validate(
                 config, context=agent_controllers
             )
         else:
             if config_location is None:
                 config_location = os.path.join(os.getcwd(), DEFAULT_CONFIG_FILENAME)
+            assert os.path.isfile(config_location), (
+                f"{config_location} is not a valid location from which to read config, aborting."
+            )
             assert os.path.isfile(config_location), (
                 f"{config_location} is not a valid location from which to read config, aborting."
             )
@@ -90,13 +107,30 @@ class LearningCoordinator(
                     f.read(), context=agent_controllers
                 )
 
-        self.agent_manager = AgentManager(
+        self.agent_manager: AgentManager[
+            AgentID,
+            ObsType,
+            ActionType,
+            RewardType,
+            StateType,
+            ObsSpaceType,
+            ActionSpaceType,
+        ] = AgentManager(
             agent_controllers,
             self.config.base_config.batched_tensor_action_associated_learning_data,
         )
 
-        self.cumulative_timesteps = 0
-        self.env_process_interface = EnvProcessInterface(
+        self.cumulative_timesteps: int = 0
+        self.env_process_interface: EnvProcessInterface[
+            AgentID,
+            ObsType,
+            ActionType,
+            EngineActionType,
+            RewardType,
+            StateType,
+            ObsSpaceType,
+            ActionSpaceType,
+        ] = EnvProcessInterface(
             env_create_function,
             self.config.base_config.serde_types,
             self.config.process_config.min_process_steps_per_inference,
@@ -144,7 +178,7 @@ class LearningCoordinator(
 
             try:
                 self.save()
-            except:
+            except Exception:
                 print("FAILED TO SAVE ON EXIT")
                 traceback.print_exc()
 
