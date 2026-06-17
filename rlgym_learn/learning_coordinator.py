@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from typing import Any, Dict, Generic, Optional, TypeVar, Type
-from typing_extensions import Self
+from typing import Any, Dict, Generic, Optional, Type, TypeVar
 
-from pydantic import BaseModel, Field, model_validator, RootModel, ValidationInfo
-
+from pydantic import BaseModel, Field, RootModel, ValidationInfo, model_validator
 from rlgym.api import (
     ActionSpaceType,
     ActionType,
@@ -18,15 +16,15 @@ from rlgym.api import (
     RLGym,
     StateType,
 )
-from rlgym_learn.util.stdin_reader import STDINReader
+from typing_extensions import Self
 
 from .agent import AgentManager
 from .api import ActionAssociatedLearningData, AgentController
-from .learning_coordinator_config import (
-    LearningCoordinatorConfigModel,
-    DEFAULT_CONFIG_FILENAME,
-)
 from .env_processing import EnvProcessInterface
+from .learning_coordinator_config import (
+    DEFAULT_CONFIG_FILENAME,
+    LearningCoordinatorConfigModel,
+)
 from .util import KBHit
 
 
@@ -83,9 +81,9 @@ class LearningCoordinator(
         else:
             if config_location is None:
                 config_location = os.path.join(os.getcwd(), DEFAULT_CONFIG_FILENAME)
-            assert os.path.isfile(
-                config_location
-            ), f"{config_location} is not a valid location from which to read config, aborting."
+            assert os.path.isfile(config_location), (
+                f"{config_location} is not a valid location from which to read config, aborting."
+            )
 
             with open(config_location, "rt") as f:
                 self.config = LearningCoordinatorConfigModel.model_validate_json(
@@ -124,9 +122,7 @@ class LearningCoordinator(
         )
         self.agent_manager.set_space_types(obs_space, action_space)
         self.agent_manager.load_agent_controllers(self.config)
-        
-        self._stdin_reader = STDINReader()
-        
+
         print("Learning coordinator successfully initialized!")
 
     def start(self):
@@ -163,9 +159,7 @@ class LearningCoordinator(
 
         # Class to watch for keyboard hits
         kb = KBHit()
-        
-        self._stdin_reader.start_reading()
-        
+
         # Collect the desired number of timesteps from our environments.
         loop_iterations = 0
         while self.cumulative_timesteps < self.config.base_config.timestep_limit:
@@ -180,32 +174,29 @@ class LearningCoordinator(
             )
             loop_iterations += 1
             if loop_iterations % 50 == 0:
-                if self.process_kbhit(kb) or self.process_stdin():
+                if self.process_kbhit(kb):
                     break
         if self.cumulative_timesteps >= self.config.base_config.timestep_limit:
             print("Hit timestep limit, cleaning up...")
         else:
             print("Quitting and cleaning up...")
-            
-    def _pause(self, kb: KBHit | None, stdin_reader: STDINReader | None):
+
+    def _pause(self, kb: KBHit | None):
         print("Paused, press any key to resume")
         while True:
             if kb and kb.kbhit():
                 break
-            
-            if stdin_reader and stdin_reader.getch():
-                break
-            
+
     def _add_process(self):
         print("Adding process...")
         self.env_process_interface.add_process()
         print(f"Process added. ({self.env_process_interface.n_procs} total)")
-        
+
     def _delete_process(self):
         print("Deleting process...")
         self.env_process_interface.delete_process()
         print(f"Process deleted. ({self.env_process_interface.n_procs} total)")
-        
+
     def _increate_min_steps_per_inference(self):
         min_process_steps_per_inference = (
             self.env_process_interface.increase_min_process_steps_per_inference()
@@ -213,7 +204,7 @@ class LearningCoordinator(
         print(
             f"Min process steps per inference increased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
         )
-        
+
     def _decrease_min_steps_per_inference(self):
         min_process_steps_per_inference = (
             self.env_process_interface.decrease_min_process_steps_per_inference()
@@ -221,31 +212,6 @@ class LearningCoordinator(
         print(
             f"Min process steps per inference decreased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
         )
-            
-    def process_stdin(self) -> bool:
-        data = self._stdin_reader.getch()
-        
-        if not data:
-            return False
-        
-        if data == "p":
-            self._pause(None, self._stdin_reader)
-        if data in ("c", "q"):
-            self.agent_manager.save_agent_controllers()
-        if data == "q":
-            return True
-        if data in ("c", "p"):
-            print("Resuming...\n")
-        if data == "a":
-            self._add_process()
-        if data == "d":
-            self._delete_process()
-        if data == "j":
-            self._increate_min_steps_per_inference()
-        if data == "l":
-            self._decrease_min_steps_per_inference()
-        return False
-            
 
     def process_kbhit(self, kb: KBHit) -> bool:
         # Check if keyboard press
@@ -256,7 +222,7 @@ class LearningCoordinator(
         if kb.kbhit():
             c = kb.getch()
             if c == "p":  # pause
-                self._pause(kb, None)
+                self._pause(kb)
             if c in ("c", "q"):
                 self.agent_manager.save_agent_controllers()
             if c == "q":
@@ -281,6 +247,5 @@ class LearningCoordinator(
         Function to clean everything up before shutting down.
         :return: None.
         """
-        self._stdin_reader.stop()
         self.env_process_interface.cleanup()
         self.agent_manager.cleanup()
