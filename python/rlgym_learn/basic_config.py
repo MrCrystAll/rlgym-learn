@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Generic, cast
+from typing import Annotated, Any, Generic, cast
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, InstanceOf, WithJsonSchema, model_validator
 from rlgym.api import (
     ActionSpaceType,
     ActionType,
@@ -15,6 +15,11 @@ from rlgym.api import (
 )
 
 from ._rlgym_learn.pyany_serde import PyAnySerdeType
+
+AnyBaseModel = Annotated[
+    InstanceOf[BaseModel],
+    WithJsonSchema({"type": "object"}),
+]
 
 
 class ProcessConfigModel(BaseModel, extra="forbid"):
