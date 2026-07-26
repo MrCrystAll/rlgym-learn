@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import cProfile
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any, Generic
 
 from rlgym.api import (
@@ -15,10 +16,8 @@ from rlgym.api import (
     RLGym,
     StateType,
 )
-from typing_extensions import Self
 
-from .agent import AgentManager
-from .api import AgentController
+from .api import AgentController, DerivedAgentControllerConfig
 from .env_processing import EnvProcessInterface
 from .learning_coordinator_config import (
     DEFAULT_CONFIG_FILENAME,
@@ -54,19 +53,15 @@ class LearningCoordinator(
                 ActionSpaceType,
             ],
         ],
-        agent_controllers: Mapping[
-            str,
-            AgentController[
-                Any,
-                AgentID,
-                ObsType,
-                ActionType,
-                RewardType,
-                StateType,
-                ObsSpaceType,
-                ActionSpaceType,
-                Any,
-            ],
+        agent_controller: AgentController[
+            Any,
+            AgentID,
+            ObsType,
+            ActionType,
+            RewardType,
+            StateType,
+            ObsSpaceType,
+            ActionSpaceType,
         ],
         config: LearningCoordinatorConfigModel[
             AgentID,
@@ -90,7 +85,7 @@ class LearningCoordinator(
                 ObsSpaceType,
                 ActionSpaceType,
             ] = LearningCoordinatorConfigModel.model_validate(
-                config, context=agent_controllers
+                config, context=agent_controller
             )
         else:
             if config_location is None:
@@ -98,16 +93,13 @@ class LearningCoordinator(
             assert os.path.isfile(config_location), (
                 f"{config_location} is not a valid location from which to read config, aborting."
             )
-            assert os.path.isfile(config_location), (
-                f"{config_location} is not a valid location from which to read config, aborting."
-            )
 
             with open(config_location, "rt") as f:
                 self.config = LearningCoordinatorConfigModel.model_validate_json(
-                    f.read(), context=agent_controllers
+                    f.read(), context=agent_controller
                 )
-
-        self.agent_manager: AgentManager[
+        self.agent_controller: AgentController[
+            Any,
             AgentID,
             ObsType,
             ActionType,
@@ -115,10 +107,7 @@ class LearningCoordinator(
             StateType,
             ObsSpaceType,
             ActionSpaceType,
-        ] = AgentManager(
-            agent_controllers,
-            self.config.base_config.batched_tensor_action_associated_learning_data,
-        )
+        ] = agent_controller
 
         self.cumulative_timesteps: int = 0
         self.env_process_interface: EnvProcessInterface[
@@ -154,10 +143,19 @@ class LearningCoordinator(
             + "(a) to add an env process, (d) to delete an env process\n"
             + "(j) to increase min inference size, (l) to decrease min inference size\n"
         )
-        self.agent_manager.set_space_types(obs_space, action_space)
-        self.agent_manager.load_agent_controllers(self.config)
-
+        self.agent_controller.set_space_types(obs_space, action_space)
+        self.agent_controller.load(
+            DerivedAgentControllerConfig(
+                agent_controller_config=self.config.agent_controller_config,
+                base_config=self.config.base_config,
+                process_config=self.config.process_config,
+                save_folder=self.config.agent_controller_save_folder,
+            ),
+        )
         print("Learning coordinator successfully initialized!")
+        # TODO: delete and remove import
+        self.prof = cProfile.Profile()
+        self.prof.enable()
 
     def start(self):
         """
@@ -183,6 +181,8 @@ class LearningCoordinator(
                 traceback.print_exc()
 
         finally:
+            self.prof.disable()
+            self.prof.dump_stats("ppo_prof.prof")
             self.cleanup()
 
     def _run(self):
@@ -192,62 +192,36 @@ class LearningCoordinator(
         """
 
         # Class to watch for keyboard hits
-        kb = KBHit()
+        # kb = KBHit()
 
         # Collect the desired number of timesteps from our environments.
         loop_iterations = 0
         while self.cumulative_timesteps < self.config.base_config.timestep_limit:
-            total_timesteps_collected, env_obs_data_dict, timestep_data, state_info = (
-                self.env_process_interface.collect_step_data()
-            )
+            (
+                total_timesteps_collected,
+                env_obs_data_dict,
+                timestep_data,
+                env_state_info_dict,
+            ) = self.env_process_interface.collect_step_data()
             self.cumulative_timesteps += total_timesteps_collected
-            self.agent_manager.process_timestep_data(timestep_data)
+            self.agent_controller.process_timestep_data(timestep_data)
 
             self.env_process_interface.send_env_actions(
-                self.agent_manager.get_env_actions(env_obs_data_dict, state_info)
+                self.agent_controller.get_env_actions(
+                    env_obs_data_dict, env_state_info_dict
+                )
             )
             loop_iterations += 1
-            if loop_iterations % 50 == 0:
-                if self.process_kbhit(kb):
-                    break
+            # TODO: undo this
+            # if loop_iterations % 50 == 0:
+            #     if self.process_kbhit(kb):
+            #         break
         if self.cumulative_timesteps >= self.config.base_config.timestep_limit:
             print("Hit timestep limit, cleaning up...")
         else:
             print("Quitting and cleaning up...")
 
-    def _pause(self, kb: KBHit | None):
-        print("Paused, press any key to resume")
-        while True:
-            if kb and kb.kbhit():
-                break
-
-    def _add_process(self):
-        print("Adding process...")
-        self.env_process_interface.add_process()
-        print(f"Process added. ({self.env_process_interface.n_procs} total)")
-
-    def _delete_process(self):
-        print("Deleting process...")
-        self.env_process_interface.delete_process()
-        print(f"Process deleted. ({self.env_process_interface.n_procs} total)")
-
-    def _increate_min_steps_per_inference(self):
-        min_process_steps_per_inference = (
-            self.env_process_interface.increase_min_process_steps_per_inference()
-        )
-        print(
-            f"Min process steps per inference increased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
-        )
-
-    def _decrease_min_steps_per_inference(self):
-        min_process_steps_per_inference = (
-            self.env_process_interface.decrease_min_process_steps_per_inference()
-        )
-        print(
-            f"Min process steps per inference decreased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
-        )
-
-    def process_kbhit(self, kb: KBHit) -> bool:
+    def process_kbhit(self, kb: KBHit):
         # Check if keyboard press
         # p: pause, any key to resume
         # c: checkpoint
@@ -256,25 +230,37 @@ class LearningCoordinator(
         if kb.kbhit():
             c = kb.getch()
             if c == "p":  # pause
-                self._pause(kb)
+                print("Paused, press any key to resume")
+                while True:
+                    if kb.kbhit():
+                        break
             if c in ("c", "q"):
-                self.agent_manager.save_agent_controllers()
+                self.agent_controller.save_checkpoint()
             if c == "q":
                 return True
             if c in ("c", "p"):
                 print("Resuming...\n")
             if c == "a":
-                self._add_process()
+                print("Adding process...")
+                self.env_process_interface.add_process()
+                print(f"Process added. ({self.env_process_interface.n_procs} total)")
             if c == "d":
-                self._delete_process()
+                print("Deleting process...")
+                self.env_process_interface.delete_process()
+                print(f"Process deleted. ({self.env_process_interface.n_procs} total)")
             if c == "j":
-                self._increate_min_steps_per_inference()
+                min_process_steps_per_inference = self.env_process_interface.increase_min_process_steps_per_inference()
+                print(
+                    f"Min process steps per inference increased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
+                )
             if c == "l":
-                self._decrease_min_steps_per_inference()
-            return False
+                min_process_steps_per_inference = self.env_process_interface.decrease_min_process_steps_per_inference()
+                print(
+                    f"Min process steps per inference decreased to {min_process_steps_per_inference} ({(100 * min_process_steps_per_inference / self.env_process_interface.n_procs):.2f}% of processes)"
+                )
 
     def save(self):
-        self.agent_manager.save_agent_controllers()
+        self.agent_controller.save_checkpoint()
 
     def cleanup(self):
         """
@@ -282,4 +268,4 @@ class LearningCoordinator(
         :return: None.
         """
         self.env_process_interface.cleanup()
-        self.agent_manager.cleanup()
+        self.agent_controller.cleanup()

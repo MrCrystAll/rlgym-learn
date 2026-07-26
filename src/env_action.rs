@@ -1,8 +1,8 @@
+use enum_kinds::EnumKind;
 use pyo3::{
     exceptions::asyncio::InvalidStateError,
     prelude::*,
-    types::{PyGenericAlias, PyList, PyType},
-    IntoPyObjectExt,
+    types::{PyGenericAlias, PyType},
 };
 
 use pyany_serde::{
@@ -12,38 +12,35 @@ use pyany_serde::{
 
 #[allow(non_camel_case_types)]
 #[pyclass(from_py_object, module = "rlgym_learn._rlgym_learn")]
-#[derive(Clone, Debug)]
-pub enum EnvActionResponse {
-    #[pyo3(constructor = (shared_info_setter = None, send_state = false))]
+#[derive(Clone, Debug, EnumKind)]
+#[enum_kind(
+    EnvActionType,
+    allow(non_camel_case_types),
+    pyclass(eq, eq_int, from_py_object, module = "rlgym_learn._rlgym_learn")
+)]
+pub enum EnvAction {
+    #[pyo3(constructor = (action_list, shared_info_setter_option = None, send_state = false))]
     STEP {
-        shared_info_setter: Option<Py<PyAny>>,
+        action_list: Vec<Py<PyAny>>,
+        shared_info_setter_option: Option<Py<PyAny>>,
         send_state: bool,
     },
-    #[pyo3(constructor = (shared_info_setter = None, send_state = false))]
+    #[pyo3(constructor = (shared_info_setter_option = None, send_state = false))]
     RESET {
-        shared_info_setter: Option<Py<PyAny>>,
+        shared_info_setter_option: Option<Py<PyAny>>,
         send_state: bool,
     },
-    #[pyo3(constructor = (desired_state, shared_info_setter = None, send_state = false, prev_timestep_id_dict = None))]
+    #[pyo3(constructor = (desired_state, shared_info_setter_option = None, send_state = false, prev_timestep_id_dict_option = None))]
     SET_STATE {
         desired_state: Py<PyAny>,
-        shared_info_setter: Option<Py<PyAny>>,
+        shared_info_setter_option: Option<Py<PyAny>>,
         send_state: bool,
-        prev_timestep_id_dict: Option<Py<PyAny>>,
+        prev_timestep_id_dict_option: Option<Py<PyAny>>,
     },
-}
-
-#[allow(non_camel_case_types)]
-#[pyclass(eq, eq_int, from_py_object, module = "rlgym_learn._rlgym_learn")]
-#[derive(Clone, Debug, PartialEq)]
-pub enum EnvActionResponseType {
-    STEP,
-    RESET,
-    SET_STATE,
 }
 
 #[pymethods]
-impl EnvActionResponse {
+impl EnvAction {
     // python generics support
     #[classmethod]
     #[pyo3(signature = (key, /))]
@@ -55,72 +52,71 @@ impl EnvActionResponse {
     }
 
     #[getter]
-    fn enum_type(&self) -> EnvActionResponseType {
+    fn enum_type(&self) -> EnvActionType {
         match self {
-            EnvActionResponse::STEP { .. } => EnvActionResponseType::STEP,
-            EnvActionResponse::RESET { .. } => EnvActionResponseType::RESET,
-            EnvActionResponse::SET_STATE { .. } => EnvActionResponseType::SET_STATE,
+            EnvAction::STEP { .. } => EnvActionType::STEP,
+            EnvAction::RESET { .. } => EnvActionType::RESET,
+            EnvAction::SET_STATE { .. } => EnvActionType::SET_STATE,
         }
     }
 
     #[getter]
-    fn shared_info_setter<'py>(&self, py: Python<'py>) -> PyResult<Option<Py<PyAny>>> {
-        Ok(match self {
-            EnvActionResponse::STEP {
-                shared_info_setter, ..
-            } => shared_info_setter.as_ref().map(|v| v.clone_ref(py)),
-            EnvActionResponse::RESET {
-                shared_info_setter, ..
-            } => shared_info_setter.as_ref().map(|v| v.clone_ref(py)),
-            EnvActionResponse::SET_STATE {
-                shared_info_setter, ..
-            } => shared_info_setter.as_ref().map(|v| v.clone_ref(py)),
-        })
+    fn shared_info_setter(&self) -> &Option<Py<PyAny>> {
+        match self {
+            EnvAction::STEP {
+                shared_info_setter_option,
+                ..
+            } => shared_info_setter_option,
+            EnvAction::RESET {
+                shared_info_setter_option,
+                ..
+            } => shared_info_setter_option,
+            EnvAction::SET_STATE {
+                shared_info_setter_option,
+                ..
+            } => shared_info_setter_option,
+        }
     }
 
     #[getter]
-    fn desired_state<'py>(&self, py: Python<'py>) -> PyResult<Option<Py<PyAny>>> {
-        if let EnvActionResponse::SET_STATE { desired_state, .. } = self {
-            Ok(Some(desired_state.clone_ref(py)))
+    fn send_state(&self) -> &bool {
+        match self {
+            EnvAction::STEP { send_state, .. } => send_state,
+            EnvAction::RESET { send_state, .. } => send_state,
+            EnvAction::SET_STATE { send_state, .. } => send_state,
+        }
+    }
+
+    #[getter]
+    fn action_list(&self) -> Option<&Vec<Py<PyAny>>> {
+        if let EnvAction::STEP { action_list, .. } = self {
+            Some(action_list)
         } else {
-            Ok(None)
+            None
         }
     }
 
     #[getter]
-    fn prev_timestep_id_dict<'py>(&self, py: Python<'py>) -> PyResult<Option<Py<PyAny>>> {
-        if let EnvActionResponse::SET_STATE {
-            prev_timestep_id_dict,
+    fn desired_state(&self) -> Option<&Py<PyAny>> {
+        if let EnvAction::SET_STATE { desired_state, .. } = self {
+            Some(desired_state)
+        } else {
+            None
+        }
+    }
+
+    #[getter]
+    fn prev_timestep_id_dict(&self) -> &Option<Py<PyAny>> {
+        if let EnvAction::SET_STATE {
+            prev_timestep_id_dict_option,
             ..
         } = self
         {
-            Ok(prev_timestep_id_dict.as_ref().map(|v| v.clone_ref(py)))
+            prev_timestep_id_dict_option
         } else {
-            Ok(None)
+            &None
         }
     }
-}
-
-#[allow(non_camel_case_types)]
-#[pyclass(from_py_object, module = "rlgym_learn._rlgym_learn")]
-#[derive(Clone, Debug)]
-pub enum EnvAction {
-    STEP {
-        shared_info_setter_option: Option<Py<PyAny>>,
-        send_state: bool,
-        action_list: Py<PyList>,
-        action_associated_learning_data: Py<PyAny>,
-    },
-    RESET {
-        shared_info_setter_option: Option<Py<PyAny>>,
-        send_state: bool,
-    },
-    SET_STATE {
-        desired_state: Py<PyAny>,
-        shared_info_setter_option: Option<Py<PyAny>>,
-        send_state: bool,
-        prev_timestep_id_dict_option: Option<Py<PyAny>>,
-    },
 }
 
 pub fn append_env_action<'py>(
@@ -134,13 +130,16 @@ pub fn append_env_action<'py>(
 ) -> PyResult<usize> {
     match env_action {
         EnvAction::STEP {
+            action_list,
             shared_info_setter_option,
             send_state,
-            action_list,
             ..
         } => {
             buf[offset] = 0;
             offset += 1;
+            for action in action_list.iter() {
+                offset = action_serde.append(buf, offset, action.bind(py))?;
+            }
             offset = append_bool(buf, offset, *send_state);
             offset = append_python_option(
                 py,
@@ -154,10 +153,6 @@ pub fn append_env_action<'py>(
                 )
                 },
             )?;
-            let action_list = action_list.bind(py);
-            for action in action_list.iter() {
-                offset = action_serde.append(buf, offset, &action)?;
-            }
         }
         EnvAction::RESET {
             shared_info_setter_option,
@@ -225,6 +220,12 @@ pub fn retrieve_env_action<'py>(
     let mut offset = offset + 1;
     match env_action_type {
         0 => {
+            let mut action_list = Vec::with_capacity(n_actions);
+            for _ in 0..n_actions {
+                let action;
+                (action, offset) = action_serde.retrieve(py, buf, offset)?;
+                action_list.push(action.unbind());
+            }
             let send_state;
             (send_state, offset) = retrieve_bool(buf, offset)?;
             let shared_info_setter_option;
@@ -239,19 +240,11 @@ pub fn retrieve_env_action<'py>(
                 )
                 },
             )?;
-            let mut action_list = Vec::with_capacity(n_actions);
-            for _ in 0..n_actions {
-                let action;
-                (action, offset) = action_serde.retrieve(py, buf, offset)?;
-                action_list.push(action);
-            }
             Ok((
                 EnvAction::STEP {
+                    action_list,
                     shared_info_setter_option: shared_info_setter_option.map(|v| v.unbind()),
                     send_state,
-                    action_list: pyo3::types::PyList::new(py, action_list)?.unbind(),
-                    action_associated_learning_data: pyo3::types::PyNone::get(py)
-                        .into_py_any(py)?,
                 },
                 offset,
             ))

@@ -1,16 +1,25 @@
-# pyright: reportExplicitAny=false, reportUnusedParameter=false, reportAny=false
+# pyright: reportUnusedParameter=false, reportAny=false
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Generic, final
+from typing import TYPE_CHECKING, Any, Generic, final
 
 from rlgym.api import AgentID
-from rlgym.rocket_league.api import Car, GameConfig, GameState, PhysicsObject
 from typing_extensions import override
 
 from ...pyany_serde.python_serde import PythonSerde
 from ..pyany_serde import PyAnySerdeType
+
+if TYPE_CHECKING:
+    from rlgym.rocket_league.api import Car, GameConfig, GameState, PhysicsObject
+else:
+    from typing_extensions import TypeAlias
+
+    Car: TypeAlias = Any
+    GameConfig: TypeAlias = Any
+    GameState: TypeAlias = Any
+    PhysicsObject: TypeAlias = Any
 
 @final
 class CarPythonSerde(PythonSerde[Car[AgentID]], Generic[AgentID]):
@@ -22,7 +31,7 @@ class CarPythonSerde(PythonSerde[Car[AgentID]], Generic[AgentID]):
     @override
     def append(
         self,
-        buf: bytes,
+        buf: memoryview,
         offset: int,
         obj: Car[AgentID],
     ) -> int: ...
@@ -33,7 +42,7 @@ class CarPythonSerde(PythonSerde[Car[AgentID]], Generic[AgentID]):
         obj: Car[AgentID],
     ) -> bytes: ...
     @override
-    def retrieve(self, buf: bytes, offset: int) -> tuple[Car[AgentID], int]: ...
+    def retrieve(self, buf: memoryview, offset: int) -> tuple[Car[AgentID], int]: ...
 
 @final
 class GameConfigPythonSerde(PythonSerde[GameConfig]):
@@ -43,14 +52,14 @@ class GameConfigPythonSerde(PythonSerde[GameConfig]):
     @override
     def append(
         self,
-        buf: bytes,
+        buf: memoryview,
         offset: int,
         obj: GameConfig,
     ) -> int: ...
     @override
     def get_bytes(self, start_addr: int | None, obj: GameConfig) -> bytes: ...
     @override
-    def retrieve(self, buf: bytes, offset: int) -> tuple[GameConfig, int]: ...
+    def retrieve(self, buf: memoryview, offset: int) -> tuple[GameConfig, int]: ...
 
 @final
 class GameStatePythonSerde(PythonSerde[GameState[AgentID]], Generic[AgentID]):
@@ -62,7 +71,7 @@ class GameStatePythonSerde(PythonSerde[GameState[AgentID]], Generic[AgentID]):
     @override
     def append(
         self,
-        buf: bytes,
+        buf: memoryview,
         offset: int,
         obj: GameState[AgentID],
     ) -> int: ...
@@ -73,7 +82,9 @@ class GameStatePythonSerde(PythonSerde[GameState[AgentID]], Generic[AgentID]):
         obj: GameState[AgentID],
     ) -> bytes: ...
     @override
-    def retrieve(self, buf: bytes, offset: int) -> tuple[GameState[AgentID], int]: ...
+    def retrieve(
+        self, buf: memoryview, offset: int
+    ) -> tuple[GameState[AgentID], int]: ...
 
 @final
 class PhysicsObjectPythonSerde(PythonSerde[PhysicsObject]):
@@ -83,11 +94,11 @@ class PhysicsObjectPythonSerde(PythonSerde[PhysicsObject]):
     @override
     def append(
         self,
-        buf: bytes,
+        buf: memoryview,
         offset: int,
         obj: PhysicsObject,
     ) -> int: ...
     @override
     def get_bytes(self, start_addr: int | None, obj: PhysicsObject) -> bytes: ...
     @override
-    def retrieve(self, buf: bytes, offset: int) -> tuple[PhysicsObject, int]: ...
+    def retrieve(self, buf: memoryview, offset: int) -> tuple[PhysicsObject, int]: ...

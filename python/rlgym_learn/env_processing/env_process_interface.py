@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
+import random
 import socket
 import time
 import traceback
 from collections.abc import Callable
 from multiprocessing.context import DefaultContext, Process
 from typing import Any, Generic, cast
-from uuid import uuid4
 
 from rlgym.api import (
     ActionSpaceType,
@@ -28,13 +28,11 @@ from .._rlgym_learn import (
 )
 from .._rlgym_learn._backend import EnvProcessInterface as RustEnvProcessInterface
 from .._rlgym_learn._backend import recvfrom_byte, sendto_byte
-from ..api import ActionAssociatedLearningData
 from ..basic_config import SerdeTypesModel
-from ..pyany_serde import PickleablePyAnySerdeType
-from .env_process import PickleableSerdeTypeConfig, env_process
+from .env_process import env_process
 
 try:
-    from tqdm import (  # pyright: ignore [reportMissingModuleSource]
+    from tqdm import (
         tqdm,  # pyright: ignore [reportAssignmentType]
     )
 except ImportError:
@@ -102,7 +100,7 @@ class EnvProcessInterface(
                 ActionSpaceType,
             ],
         ] = build_env_fn
-        self.serde_type_config: PickleableSerdeTypeConfig[
+        self.serde_type_config: SerdeTypesModel[
             AgentID,
             ObsType,
             ActionType,
@@ -110,29 +108,7 @@ class EnvProcessInterface(
             StateType,
             ObsSpaceType,
             ActionSpaceType,
-        ] = PickleableSerdeTypeConfig(
-            agent_id_serde_type=PickleablePyAnySerdeType(
-                serde_types.agent_id_serde_type
-            ),
-            obs_serde_type=PickleablePyAnySerdeType(serde_types.obs_serde_type),
-            action_serde_type=PickleablePyAnySerdeType(serde_types.action_serde_type),
-            reward_serde_type=PickleablePyAnySerdeType(serde_types.reward_serde_type),
-            obs_space_serde_type=PickleablePyAnySerdeType(
-                serde_types.obs_space_serde_type
-            ),
-            action_space_serde_type=PickleablePyAnySerdeType(
-                serde_types.action_space_serde_type
-            ),
-            shared_info_serde_type=None
-            if serde_types.shared_info_serde_type is None
-            else PickleablePyAnySerdeType(serde_types.shared_info_serde_type),
-            shared_info_setter_serde_type=None
-            if serde_types.shared_info_setter_serde_type is None
-            else PickleablePyAnySerdeType(serde_types.shared_info_setter_serde_type),
-            state_serde_type=None
-            if serde_types.state_serde_type is None
-            else PickleablePyAnySerdeType(serde_types.state_serde_type),
-        )
+        ] = serde_types
         self.flinks_folder: str = flinks_folder
         self.shm_buffer_size: int = shm_buffer_size
         self.seed: int = seed
@@ -165,7 +141,7 @@ class EnvProcessInterface(
             min_process_steps_per_inference,
         )
 
-        self.processes: list[tuple[Process, socket.socket, socket.socket | None, str]]
+        self.processes: list[tuple[Process, socket.socket, socket.socket | None, int]]
 
     def init_processes(
         self,
@@ -195,7 +171,7 @@ class EnvProcessInterface(
         self.processes = []
         print("Spawning processes...")
         for proc_idx in tqdm(range(n_processes)):
-            proc_id = str(uuid4())
+            proc_id = random.getrandbits(128)
 
             render_this_proc = proc_idx == 0 and render
 
@@ -261,7 +237,7 @@ class EnvProcessInterface(
         context = cast(DefaultContext, mp.get_context(start_method))
 
         # Set up process
-        proc_id = str(uuid4())
+        proc_id = random.getrandbits(128)
         parent_end = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         parent_end.bind(("127.0.0.1", 0))
         process = context.Process(
@@ -327,7 +303,9 @@ class EnvProcessInterface(
             print("Unable to close parent connection")
             traceback.print_exc()
 
-    def send_env_actions(self, env_actions: dict[str, EnvAction]):
+    def send_env_actions(
+        self, env_actions: dict[int, EnvAction[AgentID, ActionType, StateType]]
+    ):
         """
         Send env actions to environment processes.
         """
@@ -337,18 +315,17 @@ class EnvProcessInterface(
         self,
     ) -> tuple[
         int,
-        dict[str, tuple[list[AgentID], list[ObsType]]],
+        dict[int, tuple[list[AgentID], list[ObsType]]],
         dict[
-            str,
+            int,
             tuple[
                 list[Timestep[AgentID, ObsType, ActionType, RewardType]],
-                ActionAssociatedLearningData | None,
                 dict[str, Any] | None,
                 StateType | None,
             ],
         ],
         dict[
-            str,
+            int,
             tuple[
                 dict[str, Any] | None,
                 StateType | None,

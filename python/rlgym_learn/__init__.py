@@ -1,14 +1,13 @@
 __all__ = [
+    "AnyBaseModel",
     "BaseConfigModel",
     "ProcessConfigModel",
     "SerdeTypesModel",
     "LearningCoordinator",
     "LearningCoordinatorConfigModel",
     "generate_config",
-    "RustAgentManager",
     "EnvAction",
-    "EnvActionResponse",
-    "EnvActionResponseType",
+    "EnvActionType",
     "Timestep",
     "recvfrom_byte",
     "sendto_byte",
@@ -16,12 +15,12 @@ __all__ = [
     "rust_env_process_fn",
 ]
 
-from ._rlgym_learn import EnvAction, EnvActionResponse, EnvActionResponseType, Timestep
-from ._rlgym_learn._backend import AgentManager as RustAgentManager
+from ._rlgym_learn import EnvAction, EnvActionType, Timestep
 from ._rlgym_learn._backend import EnvProcessInterface as RustEnvProcessInterface
 from ._rlgym_learn._backend import env_process_fn as rust_env_process_fn
 from ._rlgym_learn._backend import recvfrom_byte, sendto_byte
 from .basic_config import (
+    AnyBaseModel,
     BaseConfigModel,
     ProcessConfigModel,
     SerdeTypesModel,

@@ -97,7 +97,7 @@ fn env_step<'py>(
     render_delay_option=None,
     recalculate_agent_id_every_step=false))]
 pub fn env_process_fn<'py>(
-    proc_id: &str,
+    proc_id: u128,
     child_end: Bound<'py, PyAny>,
     parent_sockname: Bound<'py, PyAny>,
     build_env_fn: Bound<'py, PyAny>,
@@ -192,18 +192,16 @@ pub fn env_process_fn<'py>(
                     );
                     let shared_info_setter_option = match &env_action {
                         EnvAction::STEP {
+                            action_list,
                             shared_info_setter_option,
                             send_state,
-                            action_list,
                             ..
                         } => {
-                            let mut actions_kv_list = Vec::with_capacity(agent_id_list.len());
-                            let action_list = action_list.bind(py);
+                            let actions_dict = PyDict::new(py);
+
                             for (agent_id, action) in agent_id_list.iter().zip(action_list.iter()) {
-                                actions_kv_list.push((agent_id, action));
+                                actions_dict.set_item(agent_id, action)?;
                             }
-                            let actions_dict =
-                                PyDict::from_sequence(&actions_kv_list.into_pyobject(py)?)?;
                             let (rew_dict, terminated_dict, truncated_dict);
                             (obs_dict, rew_dict, terminated_dict, truncated_dict) =
                                 env_step(&env, actions_dict)?;
@@ -219,10 +217,6 @@ pub fn env_process_fn<'py>(
                             send_state,
                         } => {
                             obs_dict = env_reset(&env)?;
-                            agent_id_list.clear();
-                            for agent_id in obs_dict.keys().iter() {
-                                agent_id_list.push(agent_id);
-                            }
                             rew_dict_option = None;
                             terminated_dict_option = None;
                             truncated_dict_option = None;
@@ -237,10 +231,6 @@ pub fn env_process_fn<'py>(
                             ..
                         } => {
                             obs_dict = env_set_state(&env, desired_state.bind(py))?;
-                            agent_id_list.clear();
-                            for agent_id in obs_dict.keys().iter() {
-                                agent_id_list.push(agent_id);
-                            }
                             rew_dict_option = None;
                             terminated_dict_option = None;
                             truncated_dict_option = None;
@@ -254,13 +244,12 @@ pub fn env_process_fn<'py>(
                             .cast::<PyDict>()?
                             .update(shared_info_setter.cast_bound::<PyDict>(py)?.as_mapping())?;
                     }
-                    let non_step = !is_step;
 
-                    if non_step {
+                    if !is_step {
                         n_agents = obs_dict.len();
                     }
 
-                    if recalculate_agent_id_every_step || non_step {
+                    if recalculate_agent_id_every_step || !is_step {
                         agent_id_list.clear();
                         for agent_id in obs_dict.keys().iter() {
                             agent_id_list.push(agent_id);
@@ -269,11 +258,11 @@ pub fn env_process_fn<'py>(
 
                     // Write message
                     offset = 0;
-                    if non_step {
+                    if !is_step {
                         offset = append_usize(shm_slice, offset, n_agents);
                     }
                     for agent_id in agent_id_list.iter() {
-                        if recalculate_agent_id_every_step || non_step {
+                        if recalculate_agent_id_every_step || !is_step {
                             offset = agent_id_serde.append(shm_slice, offset, agent_id)?;
                         }
                         offset = obs_serde.append(

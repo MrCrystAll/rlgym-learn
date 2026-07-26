@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Annotated, Any, Generic, cast
+from typing import Annotated, Any, Generic
 
 from pydantic import BaseModel, InstanceOf, WithJsonSchema, model_validator
 from rlgym.api import (
@@ -17,8 +17,7 @@ from rlgym.api import (
 from ._rlgym_learn.pyany_serde import PyAnySerdeType
 
 AnyBaseModel = Annotated[
-    InstanceOf[BaseModel],
-    WithJsonSchema({"type": "object"}),
+    InstanceOf[BaseModel], WithJsonSchema({"type": "object"}, mode="validation")
 ]
 
 
@@ -64,11 +63,6 @@ class SerdeTypesModel(
     )
     state_serde_type: PyAnySerdeType[StateType] | None = None
 
-    class Config:
-        json_encoders: dict[
-            type[PyAnySerdeType[Any]], Callable[[Any], dict[str, Any]]
-        ] = {PyAnySerdeType: lambda x: cast(PyAnySerdeType[Any], x).to_json()}
-
 
 class BaseConfigModel(
     BaseModel,
@@ -96,4 +90,3 @@ class BaseConfigModel(
     shm_buffer_size: int = 16384
     flinks_folder: str = "shmem_flinks"
     timestep_limit: int = 5_000_000_000
-    batched_tensor_action_associated_learning_data: bool = True

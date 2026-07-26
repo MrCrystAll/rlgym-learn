@@ -1,6 +1,4 @@
-# pyright: reportUnusedParameter=false
-
-from collections.abc import Iterable
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Generic
 
@@ -14,12 +12,9 @@ from rlgym.api import (
     StateType,
 )
 
-from .._rlgym_learn import EnvActionResponse, Timestep
+from .._rlgym_learn import EnvAction, Timestep
 from ..basic_config import BaseConfigModel, ProcessConfigModel
-from .typing import (
-    ActionAssociatedLearningData,
-    AgentControllerConfig,
-)
+from .typing import AgentControllerConfig
 
 
 @dataclass
@@ -35,7 +30,6 @@ class DerivedAgentControllerConfig(
         ActionSpaceType,
     ]
 ):
-    agent_controller_name: str
     agent_controller_config: AgentControllerConfig
     base_config: BaseConfigModel[
         AgentID,
@@ -51,6 +45,7 @@ class DerivedAgentControllerConfig(
 
 
 class AgentController(
+    ABC,
     Generic[
         AgentControllerConfig,
         AgentID,
@@ -60,48 +55,44 @@ class AgentController(
         StateType,
         ObsSpaceType,
         ActionSpaceType,
-        ActionAssociatedLearningData,
-    ]
+    ],
 ):
     @property
+    @abstractmethod
     def config_model(self) -> type[AgentControllerConfig] | None:
         """
-        Function to return the config model type that your AgentController implementation uses. Defaults to None.
+        Function to return the config model type that your AgentController implementation uses, or None if no config model is used.
         """
-        return None
 
-    def choose_agents(self, agent_id_list: list[AgentID]) -> list[int]:
-        """
-        Function to determine which agent ids (and their associated observations) this agent controller
-        will return the actions (and their associated log probs) for.
-        :param agent_id_list: List of AgentIDs available to decide actions for
-        :return: list of indices from the agent_id_list which will be used to call get_actions for this agent_controller. If the last agent controller fails to select all agent ids,
-        meaning none of the agent controllers chose at least one agent id, an exception is thrown.
-        """
-        return []
-
-    def get_actions(
+    @abstractmethod
+    def get_env_actions(
         self,
-        agent_id_list: list[AgentID],
-        obs_list: list[ObsType],
-    ) -> tuple[Iterable[ActionType], ActionAssociatedLearningData]:
+        env_obs_data_dict: dict[int, tuple[list[AgentID], list[ObsType]]],
+        env_state_info_dict: dict[
+            int,
+            tuple[
+                dict[str, Any] | None,
+                StateType | None,
+                dict[AgentID, bool] | None,
+                dict[AgentID, bool] | None,
+            ],
+        ],
+    ) -> dict[int, EnvAction[AgentID, ActionType, StateType]]:
         """
-        Function to get an action and the log of its probability from the policy given an observation.
-        :param agent_id_list: List of AgentIDs for which to produce actions. AgentIDs may not be unique here. Parallel with obs_list.
-        :param obs_list: List of ObsTypes for which to produce actions. Parallel with agent_id_list.
-        :return: Tuple of a list of chosen actions and action associated learning data.
-
-        If base_config.batched_tensor_action_associated_learning_data is true, the action associated learning data should be a tensor with the first dimension parallel with the action list. Otherwise, the action associated learning data should be a list parallel with the action list.
+        Function to get env actions from the agent controllers.
+        :param env_obs_data_dict: Dictionary with environment ids as keys and parallel lists of Agent IDs and observations, to be used to get actions if the env action chosen is "step".
+        :param state_info: Dictionary with environment ids as keys and state information as values, to be passed to agent controllers to decide the env action.
+        :return: Dictionary with environment ids as keys and EnvAction instances as values.
         """
-        raise NotImplementedError
+        # TODO: allow the returned dict to miss keys in the env_*_dict parameters and just defer those to the next loop
 
+    @abstractmethod
     def process_timestep_data(
         self,
         timestep_data: dict[
-            str,
+            int,
             tuple[
                 list[Timestep[AgentID, ObsType, ActionType, RewardType]],
-                ActionAssociatedLearningData | None,
                 dict[str, Any] | None,
                 StateType | None,
             ],
@@ -111,54 +102,21 @@ class AgentController(
         Function to handle processing of timesteps.
         :param timestep_data: Dictionary with environment ids as keys and tuples of:
 
-        timesteps from the environment (the order of agent ids in this list is fixed until a reset or set_state env action is taken),
-
-        action associated learning data (parallel to the timestep list, and None if no timesteps exist for the environment),
+        timesteps from the environment (the order of agent ids in this list is fixed until a reset or set_state EnvAction is performed),
 
         shared info for the environment (if shared_info_serde_type is non-None),
 
-        and the state (if EnvActionResponse from previous call(s) to choose_env_actions set send_state=True).
-
-        Do not modify this dict as it will be passed by reference to other agent controllers.
+        and the state (if the previous EnvAction for this environment id had send_state=True).
         """
-        pass
 
-    def choose_env_actions(
-        self,
-        state_info: dict[
-            str,
-            tuple[
-                dict[str, Any] | None,
-                StateType | None,
-                dict[AgentID, bool] | None,
-                dict[AgentID, bool] | None,
-            ],
-        ],
-    ) -> dict[str, EnvActionResponse[AgentID, StateType] | None]:
-        """
-        Function to choose EnvActionResponse per environment based on environment information. Called after process_timestep_data.
-        :param state_info: Dictionary with environment ids as keys and tuples of shared info (if shared_info_serde_type is non-None), StateType (if EnvActionResponse from previous call(s) to choose_env_actions set send_state=True), the present terminated dict for the env (None if env was just reset), and the present truncated dict for the env (None if env was just reset).
-        :return: Dictionary with environment ids as keys and EnvActionResponse as values. If STEP_RESPONSE is sent for an environment (and the agent manager agrees to use step as the env action for that environment),
-        then choose_agents and get_actions will be called asking for the actions for the agents in those environments.
-        If None is used as a value in the returned dict, or an environment id key from the state_info dict is not present in the returned dict, the agent manager will ask the other agent controllers for the env action for that environment.
-        If all agent controllers have been asked and an environment id is without an env action, an exception is thrown.
-        """
-        return {}
-
-    def process_env_actions(
-        self, env_actions: dict[str, EnvActionResponse[AgentID, StateType]]
-    ):
-        """
-        Function to process the env actions that will be used by environments.
-        :param env_actions: Dictionary with environment ids as keys and EnvActionResponse as values. These will not be None, and all environment ids which the agent manager is currently getting actions for will be present in the dictionary. Note that if there are multiple agent controllers, there may be more entries than were present in the state_info dict received in choose_env_actions.
-
-        It may cause undefined behavior to modify this dict.
-        """
-        pass
-
+    @abstractmethod
     def set_space_types(self, obs_space: ObsSpaceType, action_space: ActionSpaceType):
-        pass
+        """
+        Function to handle managing any state related to space types. Called once before load, may be called at other points according to the env action types.
+        """
+        # TODO: add GetSpaceTypes as env action
 
+    @abstractmethod
     def load(
         self,
         config: DerivedAgentControllerConfig[
@@ -173,20 +131,19 @@ class AgentController(
         ],
     ):
         """
-        Function to load the agent. set_space_type and set_device will always
+        Function to load the agent controller. set_space_type and set_device will always
         be called at least once before this method.
         :param config: config derived from learning controller config, including the agent controller specific config.
         """
-        pass
 
+    @abstractmethod
     def save_checkpoint(self):
         """
         Function to save a checkpoint of the agent.
         """
-        pass
 
+    @abstractmethod
     def cleanup(self):
         """
         Function to clean up any memory still in use when shutting down.
         """
-        pass

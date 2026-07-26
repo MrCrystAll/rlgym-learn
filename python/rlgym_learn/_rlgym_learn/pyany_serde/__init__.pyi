@@ -8,20 +8,18 @@ from typing import (
     Any,
     Callable,
     Generic,
-    TypedDict,
     TypeVar,
     final,
-    overload,
 )
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
+from typing_extensions import override
 
 from ...pyany_serde.python_serde import PythonSerde
 
 if TYPE_CHECKING:
     import numpy as np
-    from numpy import dtype
     from numpy.typing import NDArray
 
     from ..pyany_serde import InitStrategy, NumpySerdeConfig, PyAnySerdeType
@@ -49,20 +47,20 @@ else:
 
 __all__ = [
     "InitStrategy",
-    "PickleableInitStrategy",
     "NumpySerdeConfig",
-    "PickleableNumpySerdeConfig",
     "PyAnySerdeType",
-    "PickleablePyAnySerdeType",
+    "PythonSerde",
 ]
 
-T_co = TypeVar("T_co", covariant=True)
 T = TypeVar("T")
 TInner = TypeVar("TInner")
 KeysT = TypeVar("KeysT")
 ValuesT = TypeVar("ValuesT")
 
 class InitStrategy:
+    @override
+    def __reduce__(self) -> tuple[InitStrategy, tuple[Any, ...]]: ...
+
     @final
     class ALL(InitStrategy):
         __match_args__ = ()
@@ -89,24 +87,10 @@ class InitStrategy:
 
     ...
 
-@final
-class PickleableInitStrategy:
-    @overload
-    def __new__(cls) -> PickleableInitStrategy:
-        r"""
-        Create an uninitialized instance (should not be used except by unpicklers)
-        """
-
-    @overload
-    def __new__(cls, init_strategy: InitStrategy, /) -> PickleableInitStrategy:
-        r"""
-        Create a pickleable version of the provided InitStrategy class instance.
-        """
-
-    def __getstate__(self) -> list[int]: ...
-    def __setstate__(self, state: Sequence[int]) -> None: ...
-
 class NumpySerdeConfig:
+    @override
+    def __reduce__(self) -> tuple[NumpySerdeConfig, tuple[Any, ...]]: ...
+
     @final
     class DYNAMIC(NumpySerdeConfig):
         __match_args__ = (
@@ -159,30 +143,13 @@ class NumpySerdeConfig:
 
     ...
 
-@final
-class PickleableNumpySerdeConfig:
-    @overload
-    def __new__(cls) -> PickleableNumpySerdeConfig:
-        r"""
-        Create an uninitialized instance (should not be used except by unpicklers)
-        """
-
-    @overload
-    def __new__(cls, config: NumpySerdeConfig, /) -> PickleableNumpySerdeConfig:
-        r"""
-        Create a pickleable version of the provided NumpySerdeConfig class instance.
-        """
-
-    def __getstate__(self) -> list[int]: ...
-    def __setstate__(self, state: Sequence[int]) -> None: ...
-
-class PyAnySerdeType(Generic[T_co]):
-    def as_pickleable(self) -> PickleablePyAnySerdeType[T_co]: ...
+class PyAnySerdeType(Generic[T]):
+    @override
+    def __reduce__(self) -> tuple[NumpySerdeConfig, tuple[Any, ...]]: ...
     @classmethod
     def __get_pydantic_core_schema__(
         cls, _source_type: Any, handler: GetCoreSchemaHandler
     ) -> CoreSchema: ...
-    def to_json(self) -> dict[str, Any]: ...
 
     @final
     class BOOL(PyAnySerdeType[bool]):
@@ -220,7 +187,7 @@ class PyAnySerdeType(Generic[T_co]):
         ) -> dict[str, PyAnySerdeType[Any]]: ...
         def __new__(
             cls,
-            clazz: TInner,
+            clazz: type[TInner],
             init_strategy: InitStrategy,
             field_serde_type_dict: Mapping[str, PyAnySerdeType[Any]],
         ) -> PyAnySerdeType.DATACLASS[TInner]:
@@ -344,7 +311,7 @@ class PyAnySerdeType(Generic[T_co]):
         ) -> PyAnySerdeType.TUPLE: ...
 
     @final
-    class TYPEDDICT(PyAnySerdeType[TypedDict]):
+    class TYPEDDICT(PyAnySerdeType[TInner], Generic[TInner]):
         __match_args__ = ("key_serde_type_dict",)
 
         @property
@@ -354,7 +321,7 @@ class PyAnySerdeType(Generic[T_co]):
         def __new__(
             cls,
             key_serde_type_dict: Mapping[str, PyAnySerdeType[Any]],
-        ) -> PyAnySerdeType.TYPEDDICT: ...
+        ) -> PyAnySerdeType.TYPEDDICT[TInner]: ...
 
     @final
     class UNION(PyAnySerdeType[Any]):
@@ -372,22 +339,3 @@ class PyAnySerdeType(Generic[T_co]):
             option_serde_types: Sequence[PyAnySerdeType[Any]],
             option_choice_fn: Callable[[Any], int],
         ) -> PyAnySerdeType.UNION: ...
-
-@final
-class PickleablePyAnySerdeType(Generic[T_co]):
-    @overload
-    def __new__(cls) -> PickleablePyAnySerdeType[Any]:
-        r"""
-        Create an uninitialized instance (should not be used except by unpicklers)
-        """
-
-    @overload
-    def __new__(
-        cls, serde_type: PyAnySerdeType[T_co], /
-    ) -> PickleablePyAnySerdeType[T_co]:
-        r"""
-        Create a pickleable version of the provided PyAnySerdeType class instance.
-        """
-
-    def __getstate__(self) -> list[int]: ...
-    def __setstate__(self, state: Sequence[int]) -> None: ...

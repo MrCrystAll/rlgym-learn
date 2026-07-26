@@ -1,25 +1,22 @@
 use pyo3::prelude::*;
+use strum::IntoEnumIterator;
 
-mod agent_manager;
 mod env_action;
 mod env_process;
 mod env_process_interface;
-mod misc;
 mod synchronization;
 mod timestep;
 
 #[cfg(feature = "rl")]
 mod rocket_league;
 
-pub use agent_manager::AgentManager;
-pub use env_action::{EnvAction, EnvActionResponse, EnvActionResponseType};
+// pub use agent_manager::AgentManager;
+pub use env_action::{EnvAction, EnvActionType};
 pub use env_process::env_process_fn;
 pub use env_process_interface::EnvProcessInterface;
 pub use pyany_serde::{
-    pyany_serde_impl::{
-        InitStrategy, NumpySerdeConfig, PickleableInitStrategy, PickleableNumpySerdeConfig,
-    },
-    PickleablePyAnySerdeType, PyAnySerdeType,
+    pyany_serde_impl::{InitStrategy, InitStrategyKind, NumpySerdeConfig, NumpySerdeConfigKind},
+    PyAnySerdeType, PyAnySerdeTypeKind,
 };
 pub use synchronization::{recvfrom_byte, sendto_byte};
 pub use timestep::Timestep;
@@ -28,23 +25,23 @@ fn pyany_serde<'py>(py: Python<'py>, parent: &Bound<PyModule>) -> PyResult<()> {
     let sub = PyModule::new(py, "pyany_serde")?;
     sub.add_class::<InitStrategy>()?;
     sub.add_class::<NumpySerdeConfig>()?;
-    sub.add_class::<PickleableInitStrategy>()?;
-    sub.add_class::<PickleableNumpySerdeConfig>()?;
-    sub.add_class::<PickleablePyAnySerdeType>()?;
     sub.add_class::<PyAnySerdeType>()?;
     let module_attr = "rlgym_learn._rlgym_learn.pyany_serde";
-    sub.getattr("PyAnySerdeType")?
-        .setattr("__module__", module_attr)?;
-    sub.getattr("PickleablePyAnySerdeType")?
-        .setattr("__module__", module_attr)?;
     sub.getattr("InitStrategy")?
         .setattr("__module__", module_attr)?;
-    sub.getattr("PickleableInitStrategy")?
-        .setattr("__module__", module_attr)?;
+    for kind in InitStrategyKind::iter() {
+        kind.type_object(py).setattr("__module__", module_attr)?;
+    }
     sub.getattr("NumpySerdeConfig")?
         .setattr("__module__", module_attr)?;
-    sub.getattr("PickleableNumpySerdeConfig")?
+    for kind in NumpySerdeConfigKind::iter() {
+        kind.type_object(py).setattr("__module__", module_attr)?;
+    }
+    sub.getattr("PyAnySerdeType")?
         .setattr("__module__", module_attr)?;
+    for kind in PyAnySerdeTypeKind::iter() {
+        kind.type_object(py).setattr("__module__", module_attr)?;
+    }
     parent.add_submodule(&sub)?;
     let sys_modules = py.import("sys")?.getattr("modules")?;
     sys_modules.set_item(module_attr, &sub)?;
@@ -54,7 +51,7 @@ fn pyany_serde<'py>(py: Python<'py>, parent: &Bound<PyModule>) -> PyResult<()> {
 
 fn backend<'py>(py: Python<'py>, parent: &Bound<PyModule>) -> PyResult<()> {
     let sub = PyModule::new(py, "_backend")?;
-    sub.add_class::<AgentManager>()?;
+    // sub.add_class::<AgentManager>()?;
     sub.add_class::<EnvProcessInterface>()?;
     sub.add_function(wrap_pyfunction!(env_process_fn, &sub)?)?;
     sub.add_function(wrap_pyfunction!(recvfrom_byte, &sub)?)?;
@@ -124,7 +121,7 @@ mod _rlgym_learn {
     use super::*;
 
     #[pymodule_export]
-    use {EnvAction, EnvActionResponse, EnvActionResponseType, Timestep};
+    use {EnvAction, EnvActionType, Timestep};
 
     #[pymodule_init]
     fn module_init(m: &Bound<'_, PyModule>) -> PyResult<()> {
