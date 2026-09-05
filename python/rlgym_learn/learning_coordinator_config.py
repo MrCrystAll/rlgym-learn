@@ -1,11 +1,10 @@
 import os
-from typing import Annotated, Any, Generic, cast
+from typing import Any, Generic, cast
 
 from pydantic import (
     BaseModel,
     Field,
     ValidationInfo,
-    WithJsonSchema,
     model_validator,
 )
 from rlgym.api import (

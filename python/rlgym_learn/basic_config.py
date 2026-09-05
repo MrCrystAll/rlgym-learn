@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Annotated, Any, Generic
 
 from pydantic import BaseModel, InstanceOf, WithJsonSchema, field_validator
@@ -34,6 +33,7 @@ class ProcessConfigModel(BaseModel, extra="forbid"):
         assert 0 <= v <= 1, (
             "min_frac_process_responses_per_collection must be between 0 and 1 (inclusive)"
         )
+        return v
 
 
 class SerdeTypesModel(

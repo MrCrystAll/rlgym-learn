@@ -1,11 +1,13 @@
 # Changelog
 
-All notable changes to this project will be documented in this file starting with version 0.3.0.
+All notable changes to this project will be documented in this file starting with version 2.0.0.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [2.0.0] - 2026-08-29
 
 ### Added
 
@@ -51,7 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The terminal keypresses 'j' and 'l' now update `min_frac_process_responses_per_collection` to use one process more/fewer than what the previous value did.
 - `instance_launch_delay` has been renamed to `launch_delay` for simplicity.
 - Switched to mio (using `UdpSocket`s) in Rust instead of using `selectors` and `socket` in Python for multiplexing and synchronization between EPI and env processes.
+- The shared info sent using the shared info setter serde to environment processes is now used to update the shared info dict prior to the env action being performed (previously after).
 
 ### Removed
 
 - action associated learning data is no longer managed by rlgym-learn. It is expected that `AgentController` implementations store this data for themselves.
+
+## [1.0.5] - 2025-07-01
